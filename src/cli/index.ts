@@ -1,7 +1,23 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import http from 'node:http';
 import { start, stop, status } from '../daemon/manager.js';
 import { chatCommand } from './chat.js';
+import { SOCKET_FILE } from '../shared/constants.js';
+
+function apiGet<T>(path: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ socketPath: SOCKET_FILE, path }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data) as T); }
+        catch { reject(new Error('Invalid response')); }
+      });
+    });
+    req.on('error', () => reject(new Error('Daemon is not running. Start it with: sisyphus daemon start')));
+  });
+}
 
 const program = new Command();
 
@@ -40,7 +56,7 @@ program
     chatCommand(options);
   });
 
-// system-status (top-level status of the whole system, distinct from daemon status)
+// system-status
 program
   .command('system-status')
   .description('Show overall system status')
@@ -52,8 +68,33 @@ program
 program
   .command('tasks')
   .description('List and manage tasks')
-  .action(() => {
-    console.log('[placeholder] Tasks not yet implemented');
+  .action(async () => {
+    try {
+      interface TaskSummary {
+        id: string;
+        description: string;
+        status: string;
+        assignedTo?: string;
+        createdAt: string;
+        result?: string;
+        error?: string;
+      }
+      const tasks = await apiGet<TaskSummary[]>('/api/tasks');
+      if (tasks.length === 0) {
+        console.log('No tasks.');
+        return;
+      }
+      for (const t of tasks) {
+        const truncDesc = t.description.length > 60 ? t.description.slice(0, 57) + '...' : t.description;
+        const worker = t.assignedTo ? ` [${t.assignedTo}]` : '';
+        console.log(`${t.status.toUpperCase().padEnd(7)} ${t.id.slice(0, 8)}${worker} ${truncDesc}`);
+        if (t.status === 'failed' && t.error) {
+          console.log(`        Error: ${t.error}`);
+        }
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : 'Error');
+    }
   });
 
 // agents
@@ -63,9 +104,22 @@ const agents = program
 
 agents
   .command('list')
-  .description('List running agents')
-  .action(() => {
-    console.log('[placeholder] Agent listing not yet implemented');
+  .description('List registered workers')
+  .action(async () => {
+    try {
+      interface Worker { name: string; description: string; }
+      const workers = await apiGet<Worker[]>('/api/workers');
+      if (workers.length === 0) {
+        console.log('No workers registered.');
+        return;
+      }
+      for (const w of workers) {
+        const desc = w.description.length > 80 ? w.description.slice(0, 77) + '...' : w.description;
+        console.log(`  ${w.name}: ${desc}`);
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : 'Error');
+    }
   });
 
 program.parse();

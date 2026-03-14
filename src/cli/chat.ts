@@ -24,13 +24,18 @@ function postChat(message: string, sessionId?: string): Promise<void> {
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
             try {
-              const event = JSON.parse(line.slice(6)) as { type: string; content?: string; sessionId?: string };
+              const event = JSON.parse(line.slice(6)) as { type: string; content?: string; sessionId?: string; taskId?: string; result?: string; error?: string };
               if (event.type === 'chunk' && event.content) {
                 process.stdout.write(event.content);
               } else if (event.type === 'error') {
                 process.stdout.write(`\n[Error: ${event.content}]`);
+              } else if (event.type === 'task_created') {
+                // Already shown via chunk, just note it
+              } else if (event.type === 'task_done' && event.result) {
+                process.stdout.write(`\n\n✅ Task complete:\n${event.result}`);
+              } else if (event.type === 'task_failed') {
+                process.stdout.write(`\n\n❌ Task failed: ${event.error ?? 'unknown error'}`);
               } else if (event.type === 'done') {
-                // Store sessionId for reuse
                 if (event.sessionId) {
                   currentSessionId = event.sessionId;
                 }
