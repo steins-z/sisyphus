@@ -1,0 +1,23 @@
+{
+  "name": "sisyphus",
+  "version": "0.1.0",
+  "description": "Sisyphus - daemon process manager",
+  "type": "module",
+  "bin": {
+    "sisyphus": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "js-yaml": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.0"
+  }
+}
