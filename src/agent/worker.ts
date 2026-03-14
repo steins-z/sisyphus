@@ -10,10 +10,14 @@ export type WorkerDoneCallback = (task: Task) => void;
 
 const activeWorkers = new Map<string, ChildProcess>();
 
+/** Default worker timeout: 5 minutes */
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+
 export function spawnWorker(
   workerName: string,
   task: Task,
   onDone?: WorkerDoneCallback,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): void {
   task.status = 'running';
   task.assignedTo = workerName;
@@ -29,12 +33,26 @@ export function spawnWorker(
 
   activeWorkers.set(task.id, child);
 
+  // Timeout handler
+  const timer = setTimeout(() => {
+    if (activeWorkers.has(task.id)) {
+      try { child.kill('SIGKILL'); } catch { /* noop */ }
+      activeWorkers.delete(task.id);
+      const current = loadTask(task.id);
+      if (current && current.status === 'running') {
+        current.status = 'failed';
+        current.error = `Worker timed out after ${Math.round(timeoutMs / 1000)}s`;
+        saveTask(current);
+        if (onDone) onDone(current);
+      }
+    }
+  }, timeoutMs);
+
   child.on('exit', (code) => {
+    clearTimeout(timer);
     activeWorkers.delete(task.id);
-    // Reload task from file (worker may have written result)
     const updatedTask = loadTask(task.id);
     if (updatedTask) {
-      // If worker crashed without writing status, mark as failed
       if (code !== 0 && updatedTask.status === 'running') {
         updatedTask.status = 'failed';
         updatedTask.error = `Worker exited with code ${code}`;
@@ -45,6 +63,7 @@ export function spawnWorker(
   });
 
   child.on('error', (err) => {
+    clearTimeout(timer);
     activeWorkers.delete(task.id);
     const current = loadTask(task.id);
     if (current && current.status === 'running') {

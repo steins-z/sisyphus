@@ -58,10 +58,38 @@ You: [TASK:coder] Write a Python calculator program that supports addition, subt
 For normal conversation, questions, or clarifications, just respond normally without the [TASK:] pattern.`;
 }
 
+function findTaskByIdOrPrefix(idOrPrefix: string): ReturnType<typeof loadTask> {
+  // Try exact match first
+  const exact = loadTask(idOrPrefix);
+  if (exact) return exact;
+
+  // Try prefix match
+  const tasks = listTasks();
+  const matches = tasks.filter(t => t.id.startsWith(idOrPrefix));
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
+/** Mark any tasks stuck in 'running' as failed (stale from previous daemon crash) */
+function cleanupStaleTasks(): void {
+  const tasks = listTasks();
+  for (const task of tasks) {
+    if (task.status === 'running') {
+      task.status = 'failed';
+      task.error = 'Daemon restarted — task was orphaned';
+      saveTask(task);
+      console.log(`[cleanup] Marked stale task ${task.id.slice(0, 8)} as failed`);
+    }
+  }
+}
+
 async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  // Set up SSE headers early so we can always write errors
+  const sseStarted = { value: false };
+
   try {
     const raw = await readBody(req);
-    const { message, sessionId } = JSON.parse(raw) as { message: string; sessionId?: string };
+    const { message, sessionId, mode } = JSON.parse(raw) as { message: string; sessionId?: string; mode?: string };
 
     if (!message || typeof message !== 'string') {
       jsonResponse(res, 400, { error: 'message is required' });
@@ -73,7 +101,6 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     const basePrompt = loadAgentIdentity(ORCHESTRATOR_DIR);
     const systemPrompt = buildOrchestratorPrompt(basePrompt);
 
-    // Build messages for LLM
     const now = new Date().toISOString();
     const userMsg: ChatMessage = { role: 'user', content: message, timestamp: now };
     session.messages.push(userMsg);
@@ -89,16 +116,18 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     });
+    sseStarted.value = true;
 
     let fullResponse = '';
     try {
       for await (const chunk of streamChat(llmMessages, config)) {
         fullResponse += chunk;
-        // Buffer chunks — don't stream yet (need to check for task pattern)
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown LLM error';
       res.write(`data: ${JSON.stringify({ type: 'error', content: errorMsg })}\n\n`);
+      res.end();
+      return;
     }
 
     // Check for task pattern in response
@@ -110,12 +139,10 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       task.assignedTo = workerName;
       saveTask(task);
 
-      // Show friendly message instead of raw [TASK:...] pattern
       const friendlyMsg = `📋 Task assigned to **${workerName}** (ID: ${task.id.slice(0, 8)})\n> ${taskDescription}\n\nWorking on it...`;
       res.write(`data: ${JSON.stringify({ type: 'chunk', content: friendlyMsg })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'task_created', taskId: task.id, description: taskDescription, worker: workerName })}\n\n`);
 
-      // Store friendly message in session instead of raw pattern
       session.messages.push({
         role: 'assistant',
         content: friendlyMsg,
@@ -123,7 +150,19 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       });
       saveSession(session);
 
-      // Spawn worker — push result when done, then close SSE
+      // In fire-forget mode, don't wait for worker completion
+      if (mode === 'fire-forget') {
+        res.write(`data: ${JSON.stringify({ type: 'done', sessionId: session.id })}\n\n`);
+        res.end();
+        // Spawn worker without SSE callback
+        const onDone: WorkerDoneCallback = (_completedTask) => {
+          // Worker done — result is persisted in task file, no SSE to send
+        };
+        spawnWorker(workerName, task, onDone);
+        return;
+      }
+
+      // Normal mode: wait for worker completion
       const onDone: WorkerDoneCallback = (completedTask) => {
         try {
           if (completedTask.status === 'done') {
@@ -137,11 +176,10 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       };
 
       spawnWorker(workerName, task, onDone);
-      // Don't end response — wait for worker callback
       return;
     }
 
-    // Normal conversation — stream the full response
+    // Normal conversation
     if (fullResponse) {
       res.write(`data: ${JSON.stringify({ type: 'chunk', content: fullResponse })}\n\n`);
       session.messages.push({
@@ -156,7 +194,14 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     res.end();
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Internal error';
-    jsonResponse(res, 500, { error: errorMsg });
+    if (sseStarted.value) {
+      try {
+        res.write(`data: ${JSON.stringify({ type: 'error', content: errorMsg })}\n\n`);
+        res.end();
+      } catch { /* already closed */ }
+    } else {
+      jsonResponse(res, 500, { error: errorMsg });
+    }
   }
 }
 
@@ -166,6 +211,9 @@ function startServer(): void {
   if (existsSync(SOCKET_FILE)) {
     try { unlinkSync(SOCKET_FILE); } catch { /* noop */ }
   }
+
+  // Clean up stale tasks from previous daemon crash
+  cleanupStaleTasks();
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? '';
@@ -214,10 +262,10 @@ function startServer(): void {
       return;
     }
 
-    // Match /api/tasks/:id
-    const taskMatch = url.match(/^\/api\/tasks\/([a-f0-9-]+)$/);
-    if (req.method === 'GET' && taskMatch) {
-      const task = loadTask(taskMatch[1]);
+    // Match /api/tasks/:id (supports partial ID prefix)
+    const taskUrlMatch = url.match(/^\/api\/tasks\/([a-f0-9-]+)$/);
+    if (req.method === 'GET' && taskUrlMatch) {
+      const task = findTaskByIdOrPrefix(taskUrlMatch[1]);
       if (task) {
         jsonResponse(res, 200, task);
       } else {
