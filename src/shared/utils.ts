@@ -15,6 +15,12 @@ llm:
 daemon:
   socketPath: ~/.sisyphus/sisyphus.sock
   dashboardPort: 3847
+
+# iMessage Bridge
+# imessage:
+#   enabled: false
+#   handle: ""        # phone number or email, e.g. "+1234567890"
+#   pollInterval: 2000
 `;
 
 const DEFAULT_CODER_SOUL = `You are a coding assistant. When given a task, write clean, well-structured code. Include comments. Output the complete code solution.`;

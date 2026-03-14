@@ -420,4 +420,35 @@ program
     }
   });
 
+// iMessage bridge
+const imessage = program
+  .command('imessage')
+  .description('iMessage bridge');
+
+imessage
+  .command('start')
+  .description('Start the iMessage bridge (foreground)')
+  .action(async () => {
+    const { startBridge } = await import('../imessage/bridge.js');
+    await startBridge();
+    // Keep process alive
+    await new Promise(() => {});
+  });
+
+imessage
+  .command('status')
+  .description('Check iMessage bridge configuration')
+  .action(async () => {
+    const { loadConfig } = await import('../shared/config.js');
+    const config = loadConfig();
+    if (config.imessage?.enabled) {
+      console.log('iMessage bridge: enabled');
+      console.log(`Handle: ${config.imessage.handle}`);
+      console.log(`Poll interval: ${config.imessage.pollInterval ?? 2000}ms`);
+    } else {
+      console.log('iMessage bridge: disabled');
+      console.log('Enable in ~/.sisyphus/config.yaml');
+    }
+  });
+
 program.parse();

@@ -13,6 +13,11 @@ export interface SisyphusConfig {
     socketPath: string;
     dashboardPort?: number;
   };
+  imessage?: {
+    enabled: boolean;
+    handle: string;
+    pollInterval?: number;
+  };
 }
 
 export function loadConfig(): SisyphusConfig {

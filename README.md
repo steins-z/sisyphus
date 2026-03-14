@@ -163,3 +163,22 @@ CLI → Unix Socket → Daemon → Orchestrator (LLM) → Worker (child process)
 - **Orchestrator** — understands intent, delegates to workers
 - **Workers** — specialized agents (child processes), each with own identity
 - **Sessions & Tasks** — persisted as JSON in `~/.sisyphus/data/`
+
+### iMessage Bridge
+
+Send messages to Sisyphus via iMessage. Configure in `~/.sisyphus/config.yaml`:
+
+```yaml
+imessage:
+  enabled: true
+  handle: "+1234567890"  # or email@icloud.com
+  pollInterval: 2000
+```
+
+Start the bridge:
+```bash
+sisyphus imessage start    # Run in foreground
+sisyphus imessage status   # Check configuration
+```
+
+Requires Full Disk Access permission for reading the Messages database.
