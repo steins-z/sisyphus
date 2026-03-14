@@ -3,11 +3,8 @@ import type { SisyphusConfig } from '../shared/config.js';
 import type { ChatMessage } from './session.js';
 
 function createClient(config: SisyphusConfig): OpenAI {
-  if (!config.llm.apiKey) {
-    throw new Error('LLM API key not configured. Set llm.apiKey in ~/.sisyphus/config.yaml');
-  }
   return new OpenAI({
-    apiKey: config.llm.apiKey,
+    apiKey: config.llm.apiKey || 'not-needed',
     ...(config.llm.baseUrl ? { baseURL: config.llm.baseUrl } : {}),
   });
 }

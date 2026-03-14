@@ -7,9 +7,9 @@ import {
 const DEFAULT_CONFIG = `# Sisyphus Configuration
 llm:
   provider: openai
-  model: gpt-4o
+  model: claude-opus-4.6
+  baseUrl: "http://localhost:4141/v1"
   apiKey: ""
-  # baseUrl: https://openrouter.ai/api/v1  # uncomment for OpenRouter or compatible APIs
 
 daemon:
   socketPath: ~/.sisyphus/sisyphus.sock
