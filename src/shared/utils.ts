@@ -14,6 +14,7 @@ llm:
 
 daemon:
   socketPath: ~/.sisyphus/sisyphus.sock
+  dashboardPort: 3847
 `;
 
 const DEFAULT_CODER_SOUL = `You are a coding assistant. When given a task, write clean, well-structured code. Include comments. Output the complete code solution.`;

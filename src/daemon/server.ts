@@ -1,5 +1,7 @@
 import http from 'node:http';
-import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PID_FILE, SOCKET_FILE, ORCHESTRATOR_DIR } from '../shared/constants.js';
 import { ensureDataDir } from '../shared/utils.js';
 import { loadConfig } from '../shared/config.js';
@@ -19,6 +21,21 @@ const TASK_PATTERN = /\[TASK:(\w+)\]\s*(.+)/s;
 
 const startTime = Date.now();
 
+// Resolve dashboard directory relative to project root
+const __filename2 = fileURLToPath(import.meta.url);
+const __dirname2 = path.dirname(__filename2);
+const DASHBOARD_DIR = path.resolve(__dirname2, '..', '..', 'dashboard');
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
 function cleanup(): void {
   try { unlinkSync(PID_FILE); } catch { /* noop */ }
   try { unlinkSync(SOCKET_FILE); } catch { /* noop */ }
@@ -36,6 +53,45 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 function jsonResponse(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
+}
+
+function serveDashboardFile(_req: http.IncomingMessage, res: http.ServerResponse, urlPath: string): void {
+  let filePath = urlPath === '/dashboard' || urlPath === '/dashboard/'
+    ? 'index.html'
+    : urlPath.replace(/^\/dashboard\//, '');
+
+  const resolved = path.resolve(DASHBOARD_DIR, filePath);
+  if (!resolved.startsWith(DASHBOARD_DIR)) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+
+  try {
+    const content = readFileSync(resolved);
+    const ext = path.extname(resolved);
+    const mime = MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': mime });
+    res.end(content);
+  } catch {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+}
+
+function handleDashboardSSE(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  const heartbeat = setInterval(() => {
+    res.write(`event: heartbeat\ndata: ${JSON.stringify({ time: Date.now() })}\n\n`);
+  }, 5000);
+
+  res.write(`event: heartbeat\ndata: ${JSON.stringify({ time: Date.now() })}\n\n`);
+  res.on('close', () => clearInterval(heartbeat));
 }
 
 function buildOrchestratorPrompt(basePrompt: string): string {
@@ -215,8 +271,20 @@ function startServer(): void {
   // Clean up stale tasks from previous daemon crash
   cleanupStaleTasks();
 
-  const server = http.createServer((req, res) => {
+  const handler: http.RequestListener = (req, res) => {
     const url = req.url ?? '';
+
+    // Dashboard SSE endpoint
+    if (req.method === 'GET' && url === '/api/dashboard/events') {
+      handleDashboardSSE(req, res);
+      return;
+    }
+
+    // Dashboard static files
+    if (req.method === 'GET' && (url === '/dashboard' || url.startsWith('/dashboard/'))) {
+      serveDashboardFile(req, res, url);
+      return;
+    }
 
     if (req.method === 'GET' && url === '/api/system') {
       const body: SystemResponse = {
@@ -276,15 +344,24 @@ function startServer(): void {
 
     res.writeHead(404);
     res.end('Not found');
-  });
+  };
 
-  server.listen(SOCKET_FILE, () => {
+  // Unix socket server (CLI communication)
+  const socketServer = http.createServer(handler);
+  socketServer.listen(SOCKET_FILE, () => {
     writeFileSync(PID_FILE, String(process.pid));
   });
 
+  // TCP server (browser dashboard access)
+  const config = loadConfig();
+  const dashboardPort = config.daemon?.dashboardPort ?? 3847;
+  const tcpServer = http.createServer(handler);
+  tcpServer.listen(dashboardPort);
+
   const shutdown = (): void => {
     cleanup();
-    server.close();
+    socketServer.close();
+    tcpServer.close();
     process.exit(0);
   };
 

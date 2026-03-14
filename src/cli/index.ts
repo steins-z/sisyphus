@@ -330,4 +330,27 @@ agents
     }
   });
 
+// dashboard
+program
+  .command('dashboard')
+  .description('Open the web dashboard')
+  .action(async () => {
+    try {
+      await apiGet('/api/system');
+    } catch {
+      console.error('Daemon is not running. Start it with: sisyphus daemon start');
+      process.exit(1);
+    }
+    const { loadConfig } = await import('../shared/config.js');
+    const config = loadConfig();
+    const port = config.daemon?.dashboardPort ?? 3847;
+    const url = `http://localhost:${port}/dashboard`;
+    console.log(`Dashboard: ${url}`);
+    // Try to open in browser (macOS)
+    try {
+      const { exec: execCmd } = await import('node:child_process');
+      execCmd(`open ${url}`);
+    } catch { /* not macOS or open not available */ }
+  });
+
 program.parse();

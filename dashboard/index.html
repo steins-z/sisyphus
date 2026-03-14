@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sisyphus Dashboard</title>
+  <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar">
+      <div class="logo">
+        <h1>⚙️ Sisyphus</h1>
+      </div>
+      <ul class="nav-items">
+        <li class="nav-item active" data-view="system">
+          <span class="nav-icon">📊</span> System
+        </li>
+        <li class="nav-item" data-view="sessions">
+          <span class="nav-icon">💬</span> Sessions
+        </li>
+        <li class="nav-item" data-view="tasks">
+          <span class="nav-icon">📋</span> Tasks
+        </li>
+        <li class="nav-item" data-view="workers">
+          <span class="nav-icon">🤖</span> Workers
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="status-dot green"></span> Connected
+      </div>
+    </nav>
+    <main class="content">
+      <div id="view-system" class="view active">
+        <h2>System Status</h2>
+        <div class="cards">
+          <div class="card">
+            <div class="card-label">Status</div>
+            <div class="card-value" id="sys-status">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Uptime</div>
+            <div class="card-value" id="sys-uptime">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">PID</div>
+            <div class="card-value" id="sys-pid">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-sessions" class="view">
+        <h2>Sessions</h2>
+        <div id="sessions-list" class="list"></div>
+        <div id="session-detail" class="detail hidden">
+          <button id="back-to-sessions" class="btn">← Back</button>
+          <h3 id="session-title"></h3>
+          <div id="session-messages" class="messages"></div>
+        </div>
+      </div>
+
+      <div id="view-tasks" class="view">
+        <h2>Tasks</h2>
+        <div id="tasks-content"></div>
+      </div>
+
+      <div id="view-workers" class="view">
+        <h2>Workers</h2>
+        <div id="workers-content"></div>
+      </div>
+    </main>
+  </div>
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>
