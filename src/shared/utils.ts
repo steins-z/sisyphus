@@ -9,6 +9,7 @@ llm:
   provider: openai
   model: gpt-4o
   apiKey: ""
+  # baseUrl: https://openrouter.ai/api/v1  # uncomment for OpenRouter or compatible APIs
 
 daemon:
   socketPath: ~/.sisyphus/sisyphus.sock

@@ -55,7 +55,7 @@ function postChat(message: string, sessionId?: string): Promise<void> {
 
 let currentSessionId: string | undefined;
 
-export async function chatCommand(): Promise<void> {
+export async function chatCommand(options: { new?: boolean }): Promise<void> {
   // Check daemon is running
   try {
     await new Promise<void>((resolve, reject) => {
@@ -71,23 +71,25 @@ export async function chatCommand(): Promise<void> {
     process.exit(1);
   }
 
-  // Get active session
-  try {
-    const sessions = await new Promise<{ id: string }[]>((resolve, reject) => {
-      const req = http.get({ socketPath: SOCKET_FILE, path: '/api/sessions' }, (res) => {
-        let data = '';
-        res.on('data', (chunk: Buffer) => { data += chunk; });
-        res.on('end', () => {
-          try { resolve(JSON.parse(data) as { id: string }[]); }
-          catch { resolve([]); }
+  // Get active session (skip if --new)
+  if (!options.new) {
+    try {
+      const sessions = await new Promise<{ id: string }[]>((resolve, reject) => {
+        const req = http.get({ socketPath: SOCKET_FILE, path: '/api/sessions' }, (res) => {
+          let data = '';
+          res.on('data', (chunk: Buffer) => { data += chunk; });
+          res.on('end', () => {
+            try { resolve(JSON.parse(data) as { id: string }[]); }
+            catch { resolve([]); }
+          });
         });
+        req.on('error', reject);
       });
-      req.on('error', reject);
-    });
-    if (sessions.length > 0) {
-      currentSessionId = sessions[0].id;
-    }
-  } catch { /* will create new session on first message */ }
+      if (sessions.length > 0) {
+        currentSessionId = sessions[0].id;
+      }
+    } catch { /* will create new session on first message */ }
+  }
 
   console.log(`Sisyphus Chat ${currentSessionId ? `(session: ${currentSessionId})` : '(new session)'}`);
   console.log('Type your message and press Enter. Ctrl+C to exit.\n');
@@ -107,6 +109,13 @@ export async function chatCommand(): Promise<void> {
       return;
     }
 
+    if (trimmed === '/new') {
+      currentSessionId = undefined;
+      console.log('Started new session.\n');
+      rl.prompt();
+      return;
+    }
+
     try {
       await postChat(trimmed, currentSessionId);
     } catch (err) {
@@ -116,7 +125,10 @@ export async function chatCommand(): Promise<void> {
   });
 
   rl.on('close', () => {
-    console.log('\nGoodbye!');
+    if (currentSessionId) {
+      console.log(`\nSession: ${currentSessionId}`);
+    }
+    console.log('Goodbye!');
     process.exit(0);
   });
 }

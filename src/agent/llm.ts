@@ -6,7 +6,10 @@ function createClient(config: SisyphusConfig): OpenAI {
   if (!config.llm.apiKey) {
     throw new Error('LLM API key not configured. Set llm.apiKey in ~/.sisyphus/config.yaml');
   }
-  return new OpenAI({ apiKey: config.llm.apiKey });
+  return new OpenAI({
+    apiKey: config.llm.apiKey,
+    ...(config.llm.baseUrl ? { baseURL: config.llm.baseUrl } : {}),
+  });
 }
 
 function toOpenAIMessages(messages: ChatMessage[]): OpenAI.ChatCompletionMessageParam[] {

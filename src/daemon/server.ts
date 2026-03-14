@@ -51,9 +51,11 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     const userMsg: ChatMessage = { role: 'user', content: message, timestamp: now };
     session.messages.push(userMsg);
 
+    // System prompt is injected per-request, never stored in session.
+    // Filter is defensive — session.messages should only contain user/assistant.
     const llmMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt, timestamp: now },
-      ...session.messages.filter(m => m.role !== 'system'),
+      ...session.messages,
     ];
 
     // SSE response

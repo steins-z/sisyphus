@@ -35,8 +35,9 @@ daemon.command('status').description('Show daemon status').action(status);
 program
   .command('chat')
   .description('Start an interactive chat session')
-  .action(() => {
-    chatCommand();
+  .option('-n, --new', 'Start a new session instead of continuing the last one')
+  .action((options: { new?: boolean }) => {
+    chatCommand(options);
   });
 
 // system-status (top-level status of the whole system, distinct from daemon status)
