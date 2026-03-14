@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "SisyphusUI",
-            path: "Sources/SisyphusUI"
+            path: "Sources/SisyphusUI",
+            exclude: ["Resources/Info.plist"]
         )
     ]
 )

@@ -106,15 +106,25 @@ sisyphus agents delete myworker --force       # Delete a worker
 
 ### Spotlight UI (macOS)
 
-Build and run the native macOS app:
+Build the native macOS app:
 
 ```bash
 cd SisyphusUI
-swift build
-.build/debug/SisyphusUI
+./build.sh                     # Builds and creates .app bundle
+open .build/Sisyphus.app       # Run
 ```
 
-Or open `SisyphusUI/Package.swift` in Xcode.
+Or install to Applications:
+```bash
+cp -r .build/Sisyphus.app /Applications/
+```
+
+You can also open `SisyphusUI/Package.swift` in Xcode and run from there.
+
+**Requirements:**
+- macOS 14 (Sonoma) or later
+- Xcode Command Line Tools (`xcode-select --install`)
+- Accessibility permission (for global hotkey ⌥Space)
 
 **Keyboard shortcuts:**
 - **⌥ Space** — Toggle Sisyphus panel
