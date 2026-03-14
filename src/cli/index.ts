@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { start, stop, status } from '../daemon/manager.js';
+import { chatCommand } from './chat.js';
 
 const program = new Command();
 
@@ -35,7 +36,7 @@ program
   .command('chat')
   .description('Start an interactive chat session')
   .action(() => {
-    console.log('[placeholder] Interactive chat not yet implemented');
+    chatCommand();
   });
 
 // system-status (top-level status of the whole system, distinct from daemon status)
