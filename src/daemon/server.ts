@@ -8,7 +8,7 @@ import { loadConfig } from '../shared/config.js';
 import { loadAgentIdentity } from '../agent/identity.js';
 import { streamChat } from '../agent/llm.js';
 import {
-  getOrCreateActiveSession, loadSession, saveSession, listSessions,
+  getOrCreateActiveSession, loadSession, saveSession, listSessions, deleteSession,
 } from '../agent/session.js';
 import type { ChatMessage } from '../agent/session.js';
 import type { SystemResponse } from '../shared/types.js';
@@ -17,6 +17,8 @@ import { spawnWorker } from '../agent/worker.js';
 import type { WorkerDoneCallback } from '../agent/worker.js';
 import { sendNotification } from '../shared/notify.js';
 import { listWorkers } from '../agent/registry.js';
+import { getUsageSummary } from '../shared/usage.js';
+import { runCleanup } from '../shared/cleanup.js';
 
 const TASK_PATTERN = /\[TASK:(\w+)\]\s*(.+)/s;
 
@@ -36,6 +38,20 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
 };
+
+function log(msg: string): void {
+  console.log(`[${new Date().toISOString()}] ${msg}`);
+}
+
+type SSEClient = http.ServerResponse;
+const dashboardClients = new Set<SSEClient>();
+
+function broadcastDashboardEvent(event: string, data: unknown): void {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of dashboardClients) {
+    try { client.write(msg); } catch { dashboardClients.delete(client); }
+  }
+}
 
 function cleanup(): void {
   try { unlinkSync(PID_FILE); } catch { /* noop */ }
@@ -92,7 +108,13 @@ function handleDashboardSSE(_req: http.IncomingMessage, res: http.ServerResponse
   }, 5000);
 
   res.write(`event: heartbeat\ndata: ${JSON.stringify({ time: Date.now() })}\n\n`);
-  res.on('close', () => clearInterval(heartbeat));
+  dashboardClients.add(res);
+  log('Dashboard client connected');
+  res.on('close', () => {
+    clearInterval(heartbeat);
+    dashboardClients.delete(res);
+    log('Dashboard client disconnected');
+  });
 }
 
 function buildOrchestratorPrompt(basePrompt: string): string {
@@ -135,7 +157,7 @@ function cleanupStaleTasks(): void {
       task.status = 'failed';
       task.error = 'Daemon restarted — task was orphaned';
       saveTask(task);
-      console.log(`[cleanup] Marked stale task ${task.id.slice(0, 8)} as failed`);
+      log(`[cleanup] Marked stale task ${task.id.slice(0, 8)} as failed`);
     }
   }
 }
@@ -152,6 +174,8 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       jsonResponse(res, 400, { error: 'message is required' });
       return;
     }
+
+    log(`Chat request received: ${message.slice(0, 100)}`);
 
     const config = loadConfig();
     const session = sessionId ? (loadSession(sessionId) ?? getOrCreateActiveSession()) : getOrCreateActiveSession();
@@ -197,6 +221,9 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       task.assignedTo = workerName;
       saveTask(task);
 
+      log(`Task created: ${task.id.slice(0, 8)} assigned to ${workerName}`);
+      broadcastDashboardEvent('task_update', { taskId: task.id, status: 'running', description: taskDescription, worker: workerName });
+
       // Tell client to discard previous streamed chunks
       res.write(`data: ${JSON.stringify({ type: 'task_override', message: 'Response converted to task' })}\n\n`);
 
@@ -218,9 +245,12 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
         // Spawn worker without SSE callback
         const onDone: WorkerDoneCallback = (_completedTask) => {
           // Worker done — result is persisted in task file, no SSE to send
+          broadcastDashboardEvent('task_update', { taskId: _completedTask.id, status: _completedTask.status, result: _completedTask.result, error: _completedTask.error });
           if (_completedTask.status === 'done') {
+            log(`Worker completed task ${_completedTask.id.slice(0, 8)}`);
             sendNotification('Sisyphus ✅', `Task completed: ${_completedTask.description}`);
           } else if (_completedTask.status === 'failed') {
+            log(`Worker failed task ${_completedTask.id.slice(0, 8)}: ${_completedTask.error}`);
             sendNotification('Sisyphus ❌', `Task failed: ${_completedTask.description}`);
           }
         };
@@ -230,6 +260,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
 
       // Normal mode: wait for worker completion
       const onDone: WorkerDoneCallback = (completedTask) => {
+        broadcastDashboardEvent('task_update', { taskId: completedTask.id, status: completedTask.status, result: completedTask.result, error: completedTask.error });
         try {
           if (completedTask.status === 'done') {
             res.write(`data: ${JSON.stringify({ type: 'task_done', taskId: completedTask.id, result: completedTask.result })}\n\n`);
@@ -280,6 +311,11 @@ function startServer(): void {
   // Clean up stale tasks from previous daemon crash
   cleanupStaleTasks();
 
+  const cleaned = runCleanup();
+  if (cleaned.sessions || cleaned.tasks) {
+    log(`[cleanup] Removed ${cleaned.sessions} old sessions, ${cleaned.tasks} old tasks`);
+  }
+
   const handler: http.RequestListener = (req, res) => {
     const url = req.url ?? '';
 
@@ -327,16 +363,32 @@ function startServer(): void {
       return;
     }
 
+    if (req.method === 'GET' && url === '/api/usage') {
+      jsonResponse(res, 200, getUsageSummary());
+      return;
+    }
+
     // Match /api/sessions/:id
     const sessionMatch = url.match(/^\/api\/sessions\/([a-f0-9-]+)$/);
-    if (req.method === 'GET' && sessionMatch) {
-      const session = loadSession(sessionMatch[1]);
-      if (session) {
-        jsonResponse(res, 200, session);
-      } else {
-        jsonResponse(res, 404, { error: 'Session not found' });
+    if (sessionMatch) {
+      if (req.method === 'GET') {
+        const session = loadSession(sessionMatch[1]);
+        if (session) {
+          jsonResponse(res, 200, session);
+        } else {
+          jsonResponse(res, 404, { error: 'Session not found' });
+        }
+        return;
       }
-      return;
+      if (req.method === 'DELETE') {
+        const deleted = deleteSession(sessionMatch[1]);
+        if (deleted) {
+          jsonResponse(res, 200, { ok: true });
+        } else {
+          jsonResponse(res, 404, { error: 'Session not found' });
+        }
+        return;
+      }
     }
 
     // Match /api/tasks/:id (supports partial ID prefix)
@@ -359,13 +411,16 @@ function startServer(): void {
   const socketServer = http.createServer(handler);
   socketServer.listen(SOCKET_FILE, () => {
     writeFileSync(PID_FILE, String(process.pid));
+    log(`Server started on socket ${SOCKET_FILE}`);
   });
 
   // TCP server (browser dashboard access)
   const config = loadConfig();
   const dashboardPort = config.daemon?.dashboardPort ?? 3847;
   const tcpServer = http.createServer(handler);
-  tcpServer.listen(dashboardPort);
+  tcpServer.listen(dashboardPort, () => {
+    log(`Dashboard available on port ${dashboardPort}`);
+  });
 
   const shutdown = (): void => {
     cleanup();

@@ -183,6 +183,9 @@
       const es = new EventSource('/api/dashboard/events');
       es.addEventListener('heartbeat', () => { /* keep alive */ });
       es.addEventListener('refresh', () => refresh());
+      es.addEventListener('task_update', () => {
+        if (currentView === 'tasks') refresh();
+      });
       es.onerror = () => {
         es.close();
         setTimeout(connectSSE, 5000);

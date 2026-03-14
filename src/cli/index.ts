@@ -3,7 +3,8 @@ import { Command } from 'commander';
 import http from 'node:http';
 import { start, stop, status } from '../daemon/manager.js';
 import { chatCommand } from './chat.js';
-import { SOCKET_FILE, WORKERS_DIR } from '../shared/constants.js';
+import { SOCKET_FILE, WORKERS_DIR, LOGS_DIR } from '../shared/constants.js';
+import { existsSync } from 'node:fs';
 
 function apiGet<T>(path: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -391,6 +392,32 @@ program
       const { exec: execCmd } = await import('node:child_process');
       execCmd(`open ${url}`);
     } catch { /* not macOS or open not available */ }
+  });
+
+// logs
+program
+  .command('logs')
+  .description('Show daemon logs')
+  .option('-f, --follow', 'Follow log output')
+  .option('-n, --lines <n>', 'Number of lines to show', '50')
+  .action(async (options: { follow?: boolean; lines: string }) => {
+    const { join } = await import('node:path');
+    const logFile = join(LOGS_DIR, 'daemon.log');
+    if (!existsSync(logFile)) {
+      console.error('No logs found.');
+      process.exit(1);
+    }
+    if (options.follow) {
+      const { spawn } = await import('node:child_process');
+      const tail = spawn('tail', ['-f', logFile], { stdio: 'inherit' });
+      tail.on('exit', () => process.exit(0));
+    } else {
+      const { readFileSync } = await import('node:fs');
+      const content = readFileSync(logFile, 'utf-8');
+      const lines = content.trim().split('\n');
+      const n = parseInt(options.lines, 10) || 50;
+      console.log(lines.slice(-n).join('\n'));
+    }
   });
 
 program.parse();

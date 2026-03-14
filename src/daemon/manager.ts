@@ -1,9 +1,9 @@
-import { readFileSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, unlinkSync, openSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import http from 'node:http';
-import { PID_FILE, SOCKET_FILE } from '../shared/constants.js';
+import { PID_FILE, SOCKET_FILE, LOGS_DIR } from '../shared/constants.js';
 import { ensureDataDir } from '../shared/utils.js';
 import type { DaemonStatus } from '../shared/types.js';
 
@@ -71,9 +71,11 @@ export function start(): void {
   cleanupStaleFiles();
 
   const serverPath = join(__dirname, '..', 'daemon', 'server.js');
+  const logFile = join(LOGS_DIR, 'daemon.log');
+  const logFd = openSync(logFile, 'a');
   const child = spawn(process.execPath, [serverPath], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', logFd, logFd],
   });
   child.unref();
   console.log(`Daemon starting (PID: ${child.pid})`);

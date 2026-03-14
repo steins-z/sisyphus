@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { SESSIONS_DIR } from '../shared/constants.js';
 import { ensureDataDir } from '../shared/utils.js';
@@ -45,7 +45,7 @@ export function loadSession(id: string): Session | null {
   }
 }
 
-export function listSessions(): { id: string; createdAt: string; messageCount: number }[] {
+export function listSessions(): { id: string; createdAt: string; updatedAt: string; messageCount: number }[] {
   ensureDataDir();
   if (!existsSync(SESSIONS_DIR)) return [];
   const files = readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'));
@@ -54,9 +54,17 @@ export function listSessions(): { id: string; createdAt: string; messageCount: n
     return {
       id: session.id,
       createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
       messageCount: session.messages.length,
     };
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function deleteSession(id: string): boolean {
+  const filePath = join(SESSIONS_DIR, `${id}.json`);
+  if (!existsSync(filePath)) return false;
+  unlinkSync(filePath);
+  return true;
 }
 
 export function getOrCreateActiveSession(): Session {
