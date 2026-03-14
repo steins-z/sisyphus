@@ -32,6 +32,9 @@ llm:
   model: claude-opus-4.6
   baseUrl: "http://localhost:4141/v1"
   apiKey: ""
+daemon:
+  socketPath: ~/.sisyphus/sisyphus.sock
+  dashboardPort: 3847
 ```
 
 | Field | Description |
@@ -39,6 +42,7 @@ llm:
 | `llm.model` | Model name (any OpenAI-compatible model) |
 | `llm.baseUrl` | API endpoint (supports OpenRouter, copilot-api, etc.) |
 | `llm.apiKey` | API key (leave empty for self-hosted endpoints) |
+| `daemon.dashboardPort` | TCP port for Web Dashboard (default: 3847) |
 
 ## Usage
 
@@ -76,6 +80,30 @@ sisyphus result <id>     # Show task result (supports partial ID)
 sisyphus status          # Daemon info + task summary
 ```
 
+### Dashboard
+
+```bash
+sisyphus dashboard       # Open Web Dashboard in browser
+```
+
+Web Dashboard at `http://localhost:3847/dashboard` — dark theme UI with real-time task updates via SSE. Views: System status, Sessions, Tasks, Workers.
+
+### Logs
+
+```bash
+sisyphus logs            # Show last 50 lines of daemon log
+sisyphus logs -n 100     # Show last 100 lines
+sisyphus logs -f         # Follow log output (like tail -f)
+```
+
+### Agents
+
+```bash
+sisyphus agents list                          # List registered workers
+sisyphus agents create myworker -d "desc"     # Create a new worker
+sisyphus agents delete myworker --force       # Delete a worker
+```
+
 ## Workers
 
 Workers live in `~/.sisyphus/workers/`. Each worker is a directory with a `soul.md` defining its capabilities:
@@ -86,7 +114,23 @@ Workers live in `~/.sisyphus/workers/`. Each worker is a directory with a `soul.
     soul.md    # "You are a coding assistant..."
 ```
 
-A default `coder` worker is created on first run. Add more by creating new directories with a `soul.md`.
+A default `coder` worker is created on first run. Add more with `sisyphus agents create` or manually by creating new directories with a `soul.md`.
+
+## Notifications
+
+On macOS, native notifications are automatically sent when tasks complete or fail (via `osascript`). No configuration needed.
+
+## Token Usage
+
+LLM token consumption is tracked per request. Query via API:
+
+```bash
+curl http://localhost:3847/api/usage
+```
+
+## Data Management
+
+Sessions and tasks are persisted as JSON in `~/.sisyphus/data/`. Rolling cleanup runs on daemon startup (keeps 100 most recent sessions, 500 most recent tasks).
 
 ## Architecture
 
